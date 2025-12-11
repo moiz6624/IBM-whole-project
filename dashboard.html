@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Projects Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 40px 20px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+        header h1 {
+            font-size: 2.8rem;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        header p {
+            font-size: 1.2rem;
+            color: #666;
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+        .projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-top: 20px;
+        }
+        .project-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 30px;
+            text-decoration: none;
+            color: #333;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            border: 2px solid transparent;
+            position: relative;
+            overflow: hidden;
+        }
+        .project-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+            border-color: #667eea;
+        }
+        .project-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 5px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+        }
+        .project-card h2 {
+            font-size: 1.8rem;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        .project-card p {
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+        .project-icon {
+            font-size: 2.5rem;
+            margin-bottom: 20px;
+            color: #667eea;
+        }
+        .tech-stack {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .tech-tag {
+            background: #e0e7ff;
+            color: #4f46e5;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        .nav-buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .nav-btn {
+            background: #4f46e5;
+            color: white;
+            padding: 12px 30px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s;
+            border: 2px solid transparent;
+        }
+        .nav-btn:hover {
+            background: transparent;
+            color: #4f46e5;
+            border-color: #4f46e5;
+            transform: translateY(-2px);
+        }
+        footer {
+            text-align: center;
+            margin-top: 60px;
+            padding: 20px;
+            color: white;
+            font-size: 0.9rem;
+        }
+        @media (max-width: 768px) {
+            .projects-grid {
+                grid-template-columns: 1fr;
+            }
+            header h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 API Projects Dashboard</h1>
+            <p>Professional dashboard for managing and testing various encryption, authentication, and API integration projects. All projects are integrated into a single platform with seamless navigation.</p>
+            
+            <!-- NAVIGATION BUTTONS -->
+            <div class="nav-buttons">
+                <a href="/encryption" class="nav-btn">🔐 Encryption/Decryption</a>
+                <a href="/sub" class="nav-btn">📡 Sub-APIs</a>
+                <a href="/ret" class="nav-btn">🛒 Ret-APIs</a>
+                <a href="/bvs" class="nav-btn">👤 BVS-APIs</a>
+                <a href="/login" class="nav-btn">🔑 Login System</a>
+            </div>
+        </header>
+
+        <div class="projects-grid">
+            <a href="/encryption" class="project-card">
+                <div class="project-icon">🔐</div>
+                <h2>Encryption/Decryption</h2>
+                <p>RSA encryption and decryption tool for Subscriber and Retailer gateways. Supports PKCS1_v1.5 padding with DER key formats.</p>
+                <div class="tech-stack">
+                    <span class="tech-tag">Python</span>
+                    <span class="tech-tag">RSA</span>
+                    <span class="tech-tag">PyCryptodome</span>
+                    <span class="tech-tag">Base64</span>
+                </div>
+            </a>
+
+            <a href="/sub" class="project-card">
+                <div class="project-icon">📡</div>
+                <h2>Sub-APIs</h2>
+                <p>Subscriber API integration with IBM Cloud. Includes CorporateLogin, MaToMA transfers, IBFT, Utility Bill payments, and more.</p>
+                <div class="tech-stack">
+                    <span class="tech-tag">Flask</span>
+                    <span class="tech-tag">IBM API Connect</span>
+                    <span class="tech-tag">RSA Encryption</span>
+                    <span class="tech-tag">REST API</span>
+                </div>
+            </a>
+
+            <a href="/ret" class="project-card">
+                <div class="project-icon">🛒</div>
+                <h2>Ret-APIs</h2>
+                <p>Retailer gateway APIs including OTC transfers, utility bill payments, cash deposit/withdrawal, and customer title fetch.</p>
+                <div class="tech-stack">
+                    <span class="tech-tag">Flask</span>
+                    <span class="tech-tag">Session Management</span>
+                    <span class="tech-tag">IBM Cloud</span>
+                    <span class="tech-tag">Cryptography</span>
+                </div>
+            </a>
+
+            <a href="/bvs" class="project-card">
+                <div class="project-icon">👤</div>
+                <h2>BVS-APIs</h2>
+                <p>Biometric Verification System APIs with OTP generation, cash deposit/withdrawal, CNIC to MA transfers, and account registration.</p>
+                <div class="tech-stack">
+                    <span class="tech-tag">Flask Sessions</span>
+                    <span class="tech-tag">Biometric</span>
+                    <span class="tech-tag">OTP</span>
+                    <span class="tech-tag">Geo-location</span>
+                </div>
+            </a>
+
+            <a href="/login" class="project-card">
+                <div class="project-icon">🔑</div>
+                <h2>Login System</h2>
+                <p>Secure login system with session management and authentication flow. (Note: Currently integrated into other projects)</p>
+                <div class="tech-stack">
+                    <span class="tech-tag">Authentication</span>
+                    <span class="tech-tag">Sessions</span>
+                    <span class="tech-tag">Security</span>
+                    <span class="tech-tag">Cookies</span>
+                </div>
+            </a>
+        </div>
+
+        <footer>
+            <p>© 2026 API Projects Dashboard | All projects integrated into single platform | Port: 5000</p>
+            <p style="margin-top: 10px; opacity: 0.8;">🔐 Secure | ⚡ Fast | 🔄 Integrated | 📊 Professional</p>
+        </footer>
+    </div>
+</body>
+</html>
