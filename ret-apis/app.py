@@ -1,5 +1,5 @@
 # backend/app.py
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, request, jsonify, make_response, session
 from flask_cors import CORS
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -11,6 +11,8 @@ import traceback
 
 # ---- App init ----
 app = Flask(__name__)
+# enable per-client sessions for storing xHash
+app.secret_key = os.environ.get("FLASK_SECRET", "dev-secret-key")
 CORS(app)  # allow cross-origin calls (you can restrict origins later)
 
 # ---- Configuration (from env, with your previous defaults) ----
@@ -77,9 +79,9 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return response
 
-# ---- Global Storage ----
-# NOTE: This keeps global_xhash as in your original pattern. For multi-user usage consider per-session storage.
-global_xhash = None
+# ---- NOTE: per-client storage ----
+# Previously a module-global `global_xhash` was used which makes the app single-user.
+# We now store the xHash in `session['xhash']` so multiple clients can use the app concurrently.
 
 # ---- API: /api/encrypt ----
 @app.route("/api/encrypt", methods=["POST"])
@@ -91,7 +93,7 @@ def api_encrypt():
     Performs RSA encrypt (number:pin) -> calls CorporateLogin -> if success, sets global_xhash and calls all provided APIs.
     Returns encrypted value, login result, xHash and additional api results.
     """
-    global global_xhash
+    # use Flask session for per-client xhash (avoid module-global state)
     try:
         data = request.get_json(force=True)
         number = data.get("number")  # expected format e.g. "1010@923355923388"
@@ -156,8 +158,9 @@ def api_encrypt():
         # If login success -> set xhash (encrypt User~Timestamp) and call the provided APIs
         if login_success:
             user_ts = f"{login_result.get('User')}~{login_result.get('Timestamp')}"
-            global_xhash = encrypt_with_ibm_key(user_ts)
-            xhash = global_xhash
+            xhash_value = encrypt_with_ibm_key(user_ts)
+            session['xhash'] = xhash_value
+            xhash = session.get('xhash')
 
             # Now call each API from your cURL list. Use pure_number in bodies where only MSISDN is needed.
             # 1) OTCIBFT Inquiry
@@ -296,12 +299,12 @@ def api_encrypt():
 
         # Return everything
         return jsonify({
-            "encryptedValue": encrypted_value,
-            "ibmLoginResult": login_result,
-            "xHash": global_xhash,
-            "additionalApis": additional_apis,
-            "usedNumber": number,
-            "pureNumber": pure_number
+          "encryptedValue": encrypted_value,
+          "ibmLoginResult": login_result,
+          "xHash": xhash,
+          "additionalApis": additional_apis,
+          "usedNumber": number,
+          "pureNumber": pure_number
         })
 
     except Exception as e:
@@ -471,7 +474,7 @@ def serve_index():
 </head>
 <body>
   <div class="container">
-    <a href="/" class="dashboard-btn">← Back to Dashboard</a>
+    <a href="#" id="backBtn" class="dashboard-btn">← Back to Dashboard</a>
   <h1>IBM/RSA RET-API Dashboard</h1>
 
   <!-- ---------- Login Section ---------- -->
@@ -668,6 +671,25 @@ def serve_index():
     document.getElementById('apiResponses').style.display = 'none';
     hideMessage();
   });
+  
+  // Back button: clear server-side per-client state then navigate to main dashboard
+  const backBtn = document.getElementById('backBtn');
+  if (backBtn) {
+    backBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try {
+        await fetch('/api/clear', { method: 'POST' });
+      } catch (err) {
+        console.warn('Failed to clear session on server:', err);
+      }
+      // clear client UI state
+      xHashGlobal = '';
+      const xHashEl = document.getElementById('xHash'); if (xHashEl) xHashEl.value = '';
+      const loginResults = document.getElementById('loginResults'); if (loginResults) loginResults.style.display = 'none';
+      const apiResponses = document.getElementById('apiResponses'); if (apiResponses) apiResponses.style.display = 'none';
+      window.location = '/';
+    });
+  }
 </script>
 </body>
 </html>
@@ -675,6 +697,12 @@ def serve_index():
     resp = make_response(html)
     resp.headers["Content-Type"] = "text/html"
     return resp
+
+
+@app.route('/api/clear', methods=['POST'])
+def api_clear():
+    session.pop('xhash', None)
+    return jsonify({'cleared': True})
 
 
 # ---- Run ----

@@ -1,5 +1,5 @@
 # backend/app.py
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, request, jsonify, make_response, session
 from flask_cors import CORS
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -10,6 +10,8 @@ import logging
 
 # ---- App init ----
 app = Flask(__name__)
+# enable per-client sessions (used to store xHash per user)
+app.secret_key = os.environ.get("FLASK_SECRET", "dev-secret-key")
 CORS(app)  # allow cross-origin calls (you can restrict origins later)
 
 # ---- Configuration (from env, with your previous defaults) ----
@@ -66,232 +68,237 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return response
 
-# ---- Global Storage ----
-global_xhash = None
+# ---- NOTE: Use per-client Flask session for xHash ----
+# Previously a module-global `global_xhash` was used which made the app single-user.
+# We now store the xHash in `session['xhash']` so multiple clients can use the app concurrently.
 
 # ---- API: /api/encrypt ----
 @app.route("/api/encrypt", methods=["POST"])
 def api_encrypt():
-    """
-    Receives JSON: { number: "...", pin: "..." }
-    Performs RSA encrypt (number:pin) -> calls IBM CorporateLogin -> if success, sets global_xhash and calls multiple IBM APIs.
-    Returns encrypted value, login result, xHash and additional api results.
-    """
-    global global_xhash
+  """
+  Receives JSON: { number: "...", pin: "..." }
+  Performs RSA encrypt (number:pin) -> calls IBM CorporateLogin -> if success, sets session xHash and calls multiple IBM APIs.
+  Returns encrypted value, login result, xHash and additional api results.
+  """
+  try:
+    data = request.get_json(force=True)
+    number = data.get("number")
+    pin = data.get("pin")
+
+    # Ensure xhash variable exists (may be None before login)
+    xhash = session.get('xhash')
+
+    if not number or not pin:
+      return jsonify({"error": "number and pin required"}), 400
+
+    # Create payload and encrypt
+    payload = f"{number}:{pin}"
+    encrypted_value = encrypt_with_ibm_key(payload)
+
+    # Corporate login
+    login_url = "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/CorporateLogin/"
+    login_headers = {
+      "X-IBM-Client-Id": IBM_CLIENT_ID,
+      "X-IBM-Client-Secret": IBM_CLIENT_SECRET,
+      "X-Channel": X_CHANNEL,
+      "Content-Type": "application/json",
+    }
+    login_resp = requests.post(login_url, headers=login_headers, json={"LoginPayload": encrypted_value}, timeout=30)
     try:
-        data = request.get_json(force=True)
-        number = data.get("number")
-        pin = data.get("pin")
-        if not number or not pin:
-            return jsonify({"error": "number and pin required"}), 400
+      login_result = login_resp.json()
+    except Exception:
+      login_result = {"http_status": login_resp.status_code, "text": login_resp.text}
 
-        # Create payload and encrypt
-        payload = f"{number}:{pin}"
-        encrypted_value = encrypt_with_ibm_key(payload)
+    additional_apis = {}
 
-        # Corporate login
-        login_url = "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/CorporateLogin/"
-        login_headers = {
-            "X-IBM-Client-Id": IBM_CLIENT_ID,
-            "X-IBM-Client-Secret": IBM_CLIENT_SECRET,
-            "X-Channel": X_CHANNEL,
-            "Content-Type": "application/json",
+    # If login success -> set xhash and call IBM APIs
+    if isinstance(login_result, dict) and login_result.get("ResponseCode") == "0":
+      user_ts = f"{login_result.get('User')}~{login_result.get('Timestamp')}"
+      xhash_value = encrypt_with_ibm_key(user_ts)
+      session['xhash'] = xhash_value
+      xhash = session.get('xhash')
+
+      # Keep all API calls from your previous code — exact endpoints and request bodies preserved.
+      additional_apis["MaToMATransfer"] = call_ibm_api(
+        "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/MaToMA/Transfer",
+        xhash,
+        {"Amount": "10", "MSISDN": number, "ReceiverMSISDN": "923355923388"}
+      )
+
+      additional_apis["MaToMAInquiry"] = call_ibm_api(
+        "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/MaToMA/Inquiry",
+        xhash,
+        {"Amount": "20", "MSISDN": number, "ReceiverMSISDN": "923355923388", "cnic": "3700448243372"}
+      )
+
+      additional_apis["SubscriberIBFTTransfer"] = call_ibm_api(
+        "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/SubscriberIBFT/Transfer",
+        xhash,
+        {
+          "Amount": "47",
+          "BankShortName": "MOD",
+          "BankTitle": "MOD",
+          "Branch": "00",
+          "AccountNumber": "00020000011005325",
+          "MSISDN": number,
+          "ReceiverMSISDN": "923332810960",
+          "ReceiverIBAN": "",
+          "SenderName": "ZEESHAN AHMED",
+          "TransactionPurpose": "0350",
+          "Username": "ZEESHAN AHMED"
         }
-        login_resp = requests.post(login_url, headers=login_headers, json={"LoginPayload": encrypted_value}, timeout=30)
-        try:
-            login_result = login_resp.json()
-        except Exception:
-            login_result = {"http_status": login_resp.status_code, "text": login_resp.text}
+      )
 
-        additional_apis = {}
+      additional_apis["SubscriberIBFTInquiry"] = call_ibm_api(
+        "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/SubscriberIBFT/Inquiry",
+        xhash,
+        {
+          "Amount": "47",
+          "BankShortName": "MOD",
+          "BankTitle": "MOD",
+          "AccountNumber": "00020000011005325",
+          "MSISDN": number,
+          "ReceiverMSISDN": "923332810960",
+          "ReceiverIBAN": "923332810960",
+          "TransactionPurpose": "0350"
+        }
+      )
 
-        # If login success -> set xhash and call all IBM APIs you had in original code
-        if isinstance(login_result, dict) and login_result.get("ResponseCode") == "0":
-            user_ts = f"{login_result.get('User')}~{login_result.get('Timestamp')}"
-            global_xhash = encrypt_with_ibm_key(user_ts)
-            xhash = global_xhash
+      additional_apis["MAtoCNICTransfer"] = call_ibm_api(
+        "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/MAtoCNIC/Transfer",
+        xhash,
+        {"Amount": "15", "MSISDN": number, "ReceiverMSISDN": "923482665224", "ReceiverCNIC": "3520207345019"}
+      )
 
-            # Keep all API calls from your previous code — exact endpoints and request bodies preserved.
-            additional_apis["MaToMATransfer"] = call_ibm_api(
-                "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/MaToMA/Transfer",
-                xhash,
-                {"Amount": "10", "MSISDN": number, "ReceiverMSISDN": "923355923388"}
-            )
+      additional_apis["MAtoCNICInquiry"] = call_ibm_api(
+        "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/MAtoCNIC/Inquiry",
+        xhash,
+        {"Amount": "15", "MSISDN": number, "ReceiverMSISDN": number, "ReceiverCNIC": "3520207345019"}
+      )
 
-            additional_apis["MaToMAInquiry"] = call_ibm_api(
-                "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/MaToMA/Inquiry",
-                xhash,
-                {"Amount": "20", "MSISDN": number, "ReceiverMSISDN": "923355923388", "cnic": "3700448243372"}
-            )
+      additional_apis["MaToMerchantTransfer"] = call_ibm_api(
+        "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/matomerchant/transfer",
+        xhash,
+        {
+          "Amount": "10.00",
+          "QuoteId": "1438964",
+          "MSISDN": number,
+          "MPOS": "923482665224",
+          "ReceiverMsisdn": "923482665224"
+        }
+      )
 
-            additional_apis["SubscriberIBFTTransfer"] = call_ibm_api(
-                "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/SubscriberIBFT/Transfer",
-                xhash,
-                {
-                    "Amount": "47",
-                    "BankShortName": "MOD",
-                    "BankTitle": "MOD",
-                    "Branch": "00",
-                    "AccountNumber": "00020000011005325",
-                    "MSISDN": number,
-                    "ReceiverMSISDN": "923332810960",
-                    "ReceiverIBAN": "",
-                    "SenderName": "ZEESHAN AHMED",
-                    "TransactionPurpose": "0350",
-                    "Username": "ZEESHAN AHMED"
-                }
-            )
+      additional_apis["MaToMerchantInquiry"] = call_ibm_api(
+        "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/matomerchant/inquiry",
+        xhash,
+        {
+          "Amount": "10.00",
+          "MSISDN": number,
+          "MPOS": "923482665224",
+          "ReceiverMsisdn": "923482665224"
+        }
+      )
 
-            additional_apis["SubscriberIBFTInquiry"] = call_ibm_api(
-                "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/SubscriberIBFT/Inquiry",
-                xhash,
-                {
-                    "Amount": "47",
-                    "BankShortName": "MOD",
-                    "BankTitle": "MOD",
-                    "AccountNumber": "00020000011005325",
-                    "MSISDN": number,
-                    "ReceiverMSISDN": "923332810960",
-                    "ReceiverIBAN": "923332810960",
-                    "TransactionPurpose": "0350"
-                }
-            )
+      # Updated SubscriberUBPInquiry with editable MSISDN
+      additional_apis["SubscriberUBPInquiry"] = call_ibm_api(
+        "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/SubscriberUtilityBill/Inquiry",
+        xhash,
+        {"ConsumerNumber": "112233", "MSISDN": number, "Company": "LESCO"}
+      )
 
-            additional_apis["MAtoCNICTransfer"] = call_ibm_api(
-                "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/MAtoCNIC/Transfer",
-                xhash,
-                {"Amount": "15", "MSISDN": number, "ReceiverMSISDN": "923482665224", "ReceiverCNIC": "3520207345019"}
-            )
+      # Updated SubscriberUBPTransfer with editable MSISDN
+      additional_apis["SubscriberUBPTransfer"] = call_ibm_api(
+        "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/SubscriberUtilityBill/Payment",
+        xhash,
+        {"Amount": "100.00", "ConsumerNumber": "01261110004080", "MSISDN": number, "Company": "PESCO"}
+      )
 
-            additional_apis["MAtoCNICInquiry"] = call_ibm_api(
-                "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/MAtoCNIC/Inquiry",
-                xhash,
-                {"Amount": "15", "MSISDN": number, "ReceiverMSISDN": number, "ReceiverCNIC": "3520207345019"}
-            )
+      # New Utility Bill Inquiry endpoint
+      additional_apis["UtilityBillInquiry"] = call_ibm_api(
+        "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/SubscriberUtilityBill/Inquiry",
+        xhash,
+        {"ConsumerNumber": "112233", "MSISDN": number, "Company": "LESCO"}
+      )
 
-            additional_apis["MaToMerchantTransfer"] = call_ibm_api(
-                "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/matomerchant/transfer",
-                xhash,
-                {
-                    "Amount": "10.00",
-                    "QuoteId": "1438964",
-                    "MSISDN": number,
-                    "MPOS": "923482665224",
-                    "ReceiverMsisdn": "923482665224"
-                }
-            )
+      # New Utility Bill Payment endpoint
+      additional_apis["UtilityBillPayment"] = call_ibm_api(
+        "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/SubscriberUtilityBill/Payment",
+        xhash,
+        {"Amount": "100.00", "ConsumerNumber": "01261110004080", "MSISDN": number, "Company": "PESCO"}
+      )
 
-            additional_apis["MaToMerchantInquiry"] = call_ibm_api(
-                "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/matomerchant/inquiry",
-                xhash,
-                {
-                    "Amount": "10.00",
-                    "MSISDN": number,
-                    "MPOS": "923482665224",
-                    "ReceiverMsisdn": "923482665224"
-                }
-            )
+      additional_apis["AccountLimitKYC"] = call_ibm_api(
+        "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/accountlimit_kyc/AccountLimitKYC",
+        xhash,
+        {
+          "msisdn": number,
+          "basicinfo": "true",
+          "additionalinfo": "true",
+          "personalinfo": "true",
+          "address": "true",
+          "cnic": "true",
+          "account": "true",
+          "email": "true",
+          "aml": "true",
+          "expirydate": "true"
+        }
+      )
 
-            # Updated SubscriberUBPInquiry with editable MSISDN
-            additional_apis["SubscriberUBPInquiry"] = call_ibm_api(
-                "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/SubscriberUtilityBill/Inquiry",
-                xhash,
-                {"ConsumerNumber": "112233", "MSISDN": number, "Company": "LESCO"}
-            )
+      additional_apis["AccountBalance"] = call_ibm_api(
+        "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/account-balance/account-bal",
+        xhash,
+        {"msisdn": number}
+      )
 
-            # Updated SubscriberUBPTransfer with editable MSISDN
-            additional_apis["SubscriberUBPTransfer"] = call_ibm_api(
-                "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/SubscriberUtilityBill/Payment",
-                xhash,
-                {"Amount": "100.00", "ConsumerNumber": "01261110004080", "MSISDN": number, "Company": "PESCO"}
-            )
+    # Return everything
+    return jsonify({
+      "encryptedValue": encrypted_value,
+      "ibmLoginResult": login_result,
+      "xHash": xhash,
+      "additionalApis": additional_apis,
+      "loginSuccess": isinstance(login_result, dict) and login_result.get("ResponseCode") == "0"
+    })
 
-            # New Utility Bill Inquiry endpoint
-            additional_apis["UtilityBillInquiry"] = call_ibm_api(
-                "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/SubscriberUtilityBill/Inquiry",
-                xhash,
-                {"ConsumerNumber": "112233", "MSISDN": number, "Company": "LESCO"}
-            )
-
-            # New Utility Bill Payment endpoint
-            additional_apis["UtilityBillPayment"] = call_ibm_api(
-                "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/SubscriberUtilityBill/Payment",
-                xhash,
-                {"Amount": "100.00", "ConsumerNumber": "01261110004080", "MSISDN": number, "Company": "PESCO"}
-            )
-
-            additional_apis["AccountLimitKYC"] = call_ibm_api(
-                "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/accountlimit_kyc/AccountLimitKYC",
-                xhash,
-                {
-                    "msisdn": number,
-                    "basicinfo": "true",
-                    "additionalinfo": "true",
-                    "personalinfo": "true",
-                    "address": "true",
-                    "cnic": "true",
-                    "account": "true",
-                    "email": "true",
-                    "aml": "true",
-                    "expirydate": "true"
-                }
-            )
-
-            additional_apis["AccountBalance"] = call_ibm_api(
-                "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/account-balance/account-bal",
-                xhash,
-                {"msisdn": number}
-            )
-
-        # Return everything
-        return jsonify({
-            "encryptedValue": encrypted_value,
-            "ibmLoginResult": login_result,
-            "xHash": global_xhash,
-            "additionalApis": additional_apis,
-            "loginSuccess": isinstance(login_result, dict) and login_result.get("ResponseCode") == "0"
-        })
-
-    except Exception as e:
-        app.logger.exception("Encryption or IBM API call failed")
-        return jsonify({"error": "Encryption or IBM API call failed", "details": str(e)}), 500
+  except Exception as e:
+    app.logger.exception("Encryption or IBM API call failed")
+    return jsonify({"error": "Encryption or IBM API call failed", "details": str(e)}), 500
 
 
 # ---- API: /api/inquire-transaction-status ----
 @app.route("/api/inquire-transaction-status", methods=["POST"])
 def inquire_transaction_status():
-    global global_xhash
+  try:
+    data = request.get_json(force=True)
+    transaction_id = data.get("transactionID")
+    xhash = session.get('xhash')
+    if not xhash:
+      return jsonify({"error": "X-Hash not available. Please perform login first."}), 401
+    if not transaction_id:
+      return jsonify({"error": "transactionID is required."}), 400
+
+    url = "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/transaction-status-inquiry/TransactionStatusInquiry"
+
+    headers = {
+      "X-Hash-Value": xhash,
+      "X-IBM-Client-Id": IBM_CLIENT_ID,
+      "X-IBM-Client-Secret": IBM_CLIENT_SECRET,
+      "accept": "application/json",
+      "content-type": "application/json",
+      "X-Channel": X_CHANNEL
+    }
+    payload = {"transactionID": transaction_id}
+
+    resp = requests.post(url, headers=headers, json=payload, timeout=30)
     try:
-        data = request.get_json(force=True)
-        transaction_id = data.get("transactionID")
-        if not global_xhash:
-            return jsonify({"error": "X-Hash not available. Please perform login first."}), 401
-        if not transaction_id:
-            return jsonify({"error": "transactionID is required."}), 400
+      result = resp.json()
+    except Exception:
+      result = {"http_status": resp.status_code, "text": resp.text}
 
-        url = "https://rgw.8798-f464fa20.eu-de.ri1.apiconnect.appdomain.cloud/tmfb/dev-catalog/transaction-status-inquiry/TransactionStatusInquiry"
+    return jsonify({"transactionStatusResult": result})
 
-        headers = {
-            "X-Hash-Value": global_xhash,
-            "X-IBM-Client-Id": IBM_CLIENT_ID,
-            "X-IBM-Client-Secret": IBM_CLIENT_SECRET,
-            "accept": "application/json",
-            "content-type": "application/json",
-            "X-Channel": X_CHANNEL
-        }
-        payload = {"transactionID": transaction_id}
-
-        resp = requests.post(url, headers=headers, json=payload, timeout=30)
-        try:
-            result = resp.json()
-        except Exception:
-            result = {"http_status": resp.status_code, "text": resp.text}
-
-        return jsonify({"transactionStatusResult": result})
-
-    except Exception as e:
-        app.logger.exception("Transaction Status Inquiry failed")
-        return jsonify({"error": "Transaction Status Inquiry failed", "details": str(e)}), 500
+  except Exception as e:
+    app.logger.exception("Transaction Status Inquiry failed")
+    return jsonify({"error": "Transaction Status Inquiry failed", "details": str(e)}), 500
 
 
 # ---- Serve index.html directly (dashboard) ----
@@ -467,7 +474,7 @@ def serve_index():
 </head>
 <body>
   <div class="container">
-    <a href="/" class="dashboard-btn">← Back to Dashboard</a>
+    <a href="#" id="backBtn" class="dashboard-btn">← Back to Dashboard</a>
   <h1>🔐 IBM/RSA SUB-API Dashboard</h1>
 
   <!-- ---------- Login Section ---------- -->
@@ -657,6 +664,26 @@ def serve_index():
       setLoading(transactionBtn, false);
     }
   });
+
+  // Back button: clear server-side per-client state then navigate to root dashboard
+  const backBtn = document.getElementById('backBtn');
+  if (backBtn) {
+    backBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try {
+        await fetch('api/clear', { method: 'POST' });
+      } catch (err) {
+        console.warn('Failed to clear session on server:', err);
+      }
+      // clear client-side UI state
+      xHashGlobal = '';
+      const xHashEl = document.getElementById('xHash'); if (xHashEl) xHashEl.value = '';
+      const loginResults = document.getElementById('loginResults'); if (loginResults) loginResults.style.display = 'none';
+      const apiResponses = document.getElementById('apiResponses'); if (apiResponses) apiResponses.style.display = 'none';
+      const txSection = document.getElementById('transactionSection'); if (txSection) txSection.style.display = 'none';
+      window.location = '/';
+    });
+  }
 </script>
 </body>
 </html>
@@ -664,6 +691,13 @@ def serve_index():
     resp = make_response(html)
     resp.headers["Content-Type"] = "text/html"
     return resp
+
+
+@app.route('/api/clear', methods=['POST'])
+def api_clear():
+    # Clear per-client xhash/session state
+    session.pop('xhash', None)
+    return jsonify({'cleared': True})
 
 
 # ---- Run ----

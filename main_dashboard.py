@@ -4,7 +4,7 @@ import os
 import importlib.util
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.serving import run_simple
-from flask import Flask, send_from_directory, abort
+from flask import Flask, send_from_directory, abort, redirect, jsonify
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -61,14 +61,33 @@ for prefix, filepath in MOUNT_MAP.items():
         mounted[prefix] = flask_app.wsgi_app
         print(f"Mounted {filepath} -> {prefix}")
     except Exception as e:
-        print(f"Failed to load {filepath}: {e}")
+        raise RuntimeError(f"Failed to mount {prefix} from {filepath}") from e
+
+# Add simple redirects for requests to the exact mount prefix without a trailing slash.
+# DispatcherMiddleware expects requests to include the trailing slash for sub-app root routes
+# (e.g. '/sub/' to reach the sub-app's '/'). People often request '/sub' which would 404,
+# so add redirects from '/sub' -> '/sub/'.
+for prefix in list(MOUNT_MAP.keys()):
+    route = prefix
+    endpoint_name = f"redirect_{route.strip('/').replace('/', '_') or 'root'}"
+    # view_func uses default arg to capture `route` value correctly in loop
+    root_app.add_url_rule(route, endpoint=endpoint_name, view_func=(lambda r=route: redirect(r + '/')))
 
 # Compose a dispatcher that serves root_app at "/" and sub-apps under their prefixes
 application = DispatcherMiddleware(root_app.wsgi_app, mounted)
+
+
+@root_app.route("/mounted")
+def mounted_info():
+    # Returns a small JSON summary of what was mounted at startup.
+    return jsonify({"mounted_prefixes": list(mounted.keys())})
 
 if __name__ == "__main__":
     host = "0.0.0.0"
     port = int(os.environ.get("PORT", 5000))
     print(f"Starting unified server on http://{host}:{port}/")
     # Using werkzeug.run_simple for a simple dev server that runs the combined WSGI app
-    run_simple(host, port, application, use_reloader=True, use_debugger=True)
+    # Enable threaded=True so the dev server can handle multiple simultaneous
+    # requests (useful for lightweight staging). For production, run behind
+    # a proper WSGI server like gunicorn with multiple workers.
+    run_simple(host, port, application, use_reloader=False, use_debugger=False, threaded=True)

@@ -122,7 +122,7 @@ def index():
             <a href="/" class="dashboard-btn">← Back to Dashboard</a>
             <h2>Login Payload Tool</h2>
             <form id="loginForm">
-                <input type="text" name="number" placeholder="Number or Email" required>
+                <input type="text" name="number" placeholder="Enter MSISDN (e.g., 923319154345)" value="923319154345" required>
                 <input type="password" name="pin" placeholder="PIN" required>
                 <button type="submit" id="generateBtn">Generate Payload</button>
             </form>
