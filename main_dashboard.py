@@ -74,7 +74,38 @@ for prefix in list(MOUNT_MAP.keys()):
     root_app.add_url_rule(route, endpoint=endpoint_name, view_func=(lambda r=route: redirect(r + '/')))
 
 # Compose a dispatcher that serves root_app at "/" and sub-apps under their prefixes
-application = DispatcherMiddleware(root_app.wsgi_app, mounted)
+_dispatch = DispatcherMiddleware(root_app.wsgi_app, mounted)
+
+# --- Basic Auth gate over the entire dashboard (credentials from env) ---
+import hmac
+import base64
+
+_AUTH_USER = os.environ.get("APP_AUTH_USER", "apic")
+_AUTH_PASS = os.environ.get("APP_AUTH_PASS", "")
+
+
+def _auth_ok(environ):
+    if not _AUTH_PASS:
+        return False
+    hdr = environ.get("HTTP_AUTHORIZATION", "")
+    if not hdr.startswith("Basic "):
+        return False
+    try:
+        user, _, pw = base64.b64decode(hdr[6:]).decode("utf-8", "replace").partition(":")
+    except Exception:
+        return False
+    return hmac.compare_digest(user, _AUTH_USER) and hmac.compare_digest(pw, _AUTH_PASS)
+
+
+def application(environ, start_response):
+    if not _auth_ok(environ):
+        start_response(
+            "401 Unauthorized",
+            [("WWW-Authenticate", 'Basic realm="IBM Dashboard"'),
+             ("Content-Type", "text/plain")],
+        )
+        return [b"Authentication required.\n"]
+    return _dispatch(environ, start_response)
 
 
 @root_app.route("/mounted")

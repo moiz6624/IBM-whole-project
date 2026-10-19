@@ -1,9 +1,10 @@
+import os
 from flask import Flask, render_template_string, request, redirect, url_for, session
 import requests, json
 import re
 
 app = Flask(__name__)
-app.secret_key = "REDACTED"
+app.secret_key = os.environ.get("FLASK_SECRET", "")
 app.config["SESSION_TYPE"] = "filesystem"
 
 HTML_PAGE = """
@@ -185,8 +186,8 @@ def run_all():
     headers = {
         "Content-Type": "application/json",
         "X-Channel": "bvsgateway",
-        "X-IBM-Client-Id": "REDACTED",
-        "X-IBM-Client-Secret": "REDACTED"
+        "X-IBM-Client-Id": os.environ.get("IBM_CLIENT_ID", ""),
+        "X-IBM-Client-Secret": os.environ.get("IBM_CLIENT_SECRET", "")
     }
 
     # --- 1️⃣ OTP API ---

@@ -12,12 +12,12 @@ import traceback
 # ---- App init ----
 app = Flask(__name__)
 # enable per-client sessions for storing xHash
-app.secret_key = os.environ.get("FLASK_SECRET", "dev-secret-key")
+app.secret_key = os.environ.get("FLASK_SECRET", "")
 CORS(app)  # allow cross-origin calls (you can restrict origins later)
 
 # ---- Configuration (from env, with your previous defaults) ----
-IBM_CLIENT_ID = os.environ.get("IBM_CLIENT_ID", "REDACTED")
-IBM_CLIENT_SECRET = os.environ.get("IBM_CLIENT_SECRET", "REDACTED")
+IBM_CLIENT_ID = os.environ.get("IBM_CLIENT_ID", "")
+IBM_CLIENT_SECRET = os.environ.get("IBM_CLIENT_SECRET", "")
 X_CHANNEL = os.environ.get("X_CHANNEL", "retailergateway")
 PUBLIC_KEY_PATH = os.path.join(os.path.dirname(__file__), "retailergateway.pem")
 

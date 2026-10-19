@@ -1,0 +1,16 @@
+﻿# Python
+__pycache__/
+*.pyc
+
+# Local backups / logs
+*.bak
+nohup.out
+
+# Secrets â€” never commit real env files
+*.env
+.env
+!.env.example
+
+# NOTE: staging gateway key files (*.pem / *.der for subgateway & retailergateway)
+# are intentionally kept in the repo.
+

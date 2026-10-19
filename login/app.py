@@ -1,4 +1,5 @@
 # app.py
+import os
 from flask import Flask, request, jsonify, render_template_string
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_v1_5
@@ -228,8 +229,8 @@ def loginpayload():
             public_key = load_public_key_from_hex(PUB_KEY_HEX_RETAILER)
             LoginPayload = encrypt_data(input_enc, public_key)
             headers = {
-                "X-IBM-Client-Id": "REDACTED",
-                "X-IBM-Client-Secret": "REDACTED",
+                "X-IBM-Client-Id": os.environ.get("IBM_CLIENT_ID", ""),
+                "X-IBM-Client-Secret": os.environ.get("IBM_CLIENT_SECRET", ""),
                 "X-Channel": "retailergateway",
                 "Content-Type": "application/json"
             }
@@ -240,8 +241,8 @@ def loginpayload():
             public_key = load_public_key_from_hex(PUB_KEY_HEX_SUB)
             LoginPayload = encrypt_data(input_enc, public_key)
             headers = {
-                "X-IBM-Client-Id": "REDACTED",
-                "X-IBM-Client-Secret": "REDACTED",
+                "X-IBM-Client-Id": os.environ.get("IBM_CLIENT_ID", ""),
+                "X-IBM-Client-Secret": os.environ.get("IBM_CLIENT_SECRET", ""),
                 "X-Channel": "subgateway",
                 "Content-Type": "application/json"
             }
