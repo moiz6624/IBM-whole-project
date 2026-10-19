@@ -181,8 +181,8 @@ The application uses the following environment variables (with defaults):
 
 | Variable | Default | Service | Purpose |
 |----------|---------|---------|---------|
-| `IBM_CLIENT_ID` | `REDACTED` | ret-apis, sub-apis | IBM authentication ID |
-| `IBM_CLIENT_SECRET` | `REDACTED` | ret-apis, sub-apis | IBM authentication secret |
+| `IBM_CLIENT_ID` | `924726a...............10c4e4` | ret-apis, sub-apis | IBM authentication ID |
+| `IBM_CLIENT_SECRET` | `7154c95b..............2f297eb5a9c` | ret-apis, sub-apis | IBM authentication secret |
 | `X_CHANNEL` | `retailergateway` or `subgateway` | Gateway services | Channel identifier |
 
 ### Key Management
